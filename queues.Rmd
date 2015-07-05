@@ -1,0 +1,123 @@
+---
+title: "qstack and dequer"
+output: html_document
+---
+
+```{r, echo=FALSE}
+library(qstack)
+library(dequer)
+
+library(knitr)
+opts_chunk$set(cache=TRUE)
+```
+
+
+## Many small objects
+
+Winner:  qstack
+
+```{r}
+n <- 2e5
+index <- 1:n
+
+
+system.time({
+  q <- Queue2()
+  for (i in index) q$add(i)
+})
+
+system.time({
+  d <- deque()
+  
+  for (i in index) push(d, i)
+})
+
+invisible({rm(q, d);gc()})
+```
+
+
+
+## Copies of the same object
+
+Winner:  overwhelmingly qstack (it's using a hash table, after all)
+
+```{r}
+n <- 1e3
+index <- 1:n
+
+x <- rnorm(1e5)
+
+
+system.time({
+  q <- Queue2()
+  for (i in index) q$add(x)
+})
+
+system.time({
+  d <- deque()
+  
+  for (i in index) push(d, x)
+})
+
+invisible({rm(q, d);gc()})
+```
+
+
+
+## Sevaral larger objects
+
+Winner: dequer
+
+```{r}
+n <- 1e4
+index <- 1:n
+
+m <- 1e3
+
+
+system.time({
+  q <- Queue2()
+  for (i in index) q$add(rnorm(m))
+})
+
+system.time({
+  d <- deque()
+  
+  for (i in index) push(d, rnorm(m))
+})
+
+invisible({rm(q, d);gc()})
+```
+
+I first tried this with `1e3` iterations with `rnorm(1e6)`, and it made my 16 GiB ram machine swap out from the Queue2 insertions.
+
+
+
+## Thoughts
+
+* If the memory allocations are expensive, dequer (linked list) is probably going to be faster than qstack (doubling array), and otherwise I would would expect qstack to be faster than dequer.
+* These benchmarks basically follow the general wisdom on queue-like data structures.
+* As documented in the dequer package, R's memory allocator, which dequer interfaces with via `R_PreserveObject` and `R_ReleaseObject`, is a stack.  This makes the full generality of dequer somewhat worthless.  Observe:
+
+```{r}
+n <- 1e4
+index <- 1:n
+
+system.time({
+	d <- deque()
+	for (i in index) pushback(d, i)
+	
+	invisible({rm(d);gc()})
+})
+
+### Reverse first to free the stack in the correct order
+system.time({
+	d <- deque()
+	for (i in index) pushback(d, i)
+	rev(d)
+	
+	invisible({rm(d);gc()})
+})
+```
+
+If you limit yourself to just pushes or pushbacks (stacks or queues), you have the extra amount of information needed to ensure that you always release "correctly" and avoid this penalty.
